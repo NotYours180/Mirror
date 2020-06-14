@@ -1,5 +1,7 @@
+using System;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Mirror
 {
@@ -26,6 +28,7 @@ namespace Mirror
         /// <summary>
         /// The animator component to synchronize.
         /// </summary>
+        [FormerlySerializedAs("animator")]
         [Header("Animator")]
         [Tooltip("Animator that will have parameters synchronized")]
         [SerializeField] Animator _animator;
@@ -68,7 +71,11 @@ namespace Mirror
             get => _animator;
             set
             {
-                if (HasAnimator) logger.LogWarning("setting animator when one has already been set");
+                if (HasAnimator)
+                {
+                    logger.LogError("setting animator when one has already been set");
+                    return;
+                }
 
                 _animator = value;
                 Setup();
@@ -76,9 +83,9 @@ namespace Mirror
         }
 
         public bool HasAnimator => _animator != null;
-        bool _hasSetup;
+        bool hasSetup;
         // cache message if Animator not set
-        byte[] _setupMsg;
+        byte[] setupMsg;
 
         void Awake()
         {
@@ -105,19 +112,23 @@ namespace Mirror
 
             if (isServer)
             {
-                sendSetupMessage();
+                SendSetupMessage();
             }
-            else if (_setupMsg != null)
+            // if server has already sent setup message
+            else if (setupMsg != null)
             {
-                HandleAnimSetMsgBytes(_setupMsg);
+                HandleAnimSetMsgBytes(new ArraySegment<byte>(setupMsg));
+                // clear setup message after setup
+                setupMsg = null;
             }
         }
 
         void FixedUpdate()
         {
+            if (!hasSetup)
+                return;
             if (!SendMessagesAllowed)
                 return;
-            if (!_hasSetup) { return; }
 
             CheckSendRate();
 
@@ -350,30 +361,6 @@ namespace Mirror
         }
 
         /// <summary>
-        /// Custom Serialization
-        /// </summary>
-        /// <param name="writer"></param>
-        /// <param name="initialState"></param>
-        /// <returns></returns>
-        public override bool OnSerialize(NetworkWriter writer, bool initialState)
-        {
-            // initial state needs to be set after Animator has been set
-
-
-            return false;
-        }
-
-        /// <summary>
-        /// Custom Deserialization
-        /// </summary>
-        /// <param name="reader"></param>
-        /// <param name="initialState"></param>
-        public override void OnDeserialize(NetworkReader reader, bool initialState)
-        {
-            // initial state needs to be set after Animator has been set
-        }
-
-        /// <summary>
         /// Causes an animation trigger to be invoked for a networked object.
         /// <para>If local authority is set, and this is called from the client, then the trigger will be invoked on the server and all clients. If not, then this is called on the server, and the trigger will be called on all clients.</para>
         /// </summary>
@@ -554,17 +541,12 @@ namespace Mirror
         #endregion
 
 
-
-        #region Custom Animator Set
+        #region intial setup
         [Server]
-        void sendSetupMessage()
+        void SendSetupMessage()
         {
-            if (!isServer)
-            {
-                return;
-            }
             // mark ready on server
-            _hasSetup = true;
+            hasSetup = true;
 
             using (PooledNetworkWriter writer = NetworkWriterPool.GetWriter())
             {
@@ -585,46 +567,45 @@ namespace Mirror
                 }
                 WriteParameters(writer, true);
 
-                byte[] bytes = writer.ToArray();
+                ArraySegment<byte> bytes = writer.ToArraySegment();
                 RpcOnAnimatorSetClientMessage(bytes);
             }
         }
 
-        void HandleAnimSetMsgBytes(byte[] parameters)
-        {
-            using (PooledNetworkReader networkReader = NetworkReaderPool.GetReader(parameters))
-            {
-                HandleAnimSetMsg(networkReader);
-            }
-        }
-        void HandleAnimSetMsg(PooledNetworkReader reader)
-        {
-            logger.Assert(HasAnimator, "HandleAnimSetMsg called before animator set");
-            for (int i = 0; i < animator.layerCount; i++)
-            {
-                int stateHash = reader.ReadInt32();
-                float normalizedTime = reader.ReadSingle();
-                animator.Play(stateHash, i, normalizedTime);
-            }
-
-            ReadParameters(reader);
-
-            _hasSetup = true;
-
-        }
         [ClientRpc]
-        void RpcOnAnimatorSetClientMessage(byte[] setupByte)
+        void RpcOnAnimatorSetClientMessage(ArraySegment<byte> setupByte)
         {
-            if (isServer) { return; } // host players doesnt need to be setup
+            // host players doesnt need to be setup
+            if (isServer) { return; }
 
-            logger.Assert(!_hasSetup, "Setup should not be called mutliple times");
+            logger.Assert(!hasSetup, "Setup should not be called mutliple times");
+            // if animator has been set, handle the message right way
+            // else wait for animator to be set and handle the message in setup
             if (HasAnimator)
             {
                 HandleAnimSetMsgBytes(setupByte);
             }
             else
             {
-                _setupMsg = setupByte;
+                setupMsg = setupByte.ToArray();
+            }
+        }
+
+        void HandleAnimSetMsgBytes(ArraySegment<byte> parameters)
+        {
+            using (PooledNetworkReader reader = NetworkReaderPool.GetReader(parameters))
+            {
+                logger.Assert(HasAnimator, "HandleAnimSetMsg called before animator set");
+                for (int i = 0; i < animator.layerCount; i++)
+                {
+                    int stateHash = reader.ReadInt32();
+                    float normalizedTime = reader.ReadSingle();
+                    animator.Play(stateHash, i, normalizedTime);
+                }
+
+                ReadParameters(reader);
+
+                hasSetup = true;
             }
         }
         #endregion
