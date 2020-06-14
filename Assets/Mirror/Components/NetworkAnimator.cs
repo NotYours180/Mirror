@@ -543,7 +543,6 @@ namespace Mirror
 
         #endregion
 
-
         #region intial setup
         [Server]
         void SendSetupMessage()
