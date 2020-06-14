@@ -31,7 +31,7 @@ namespace Mirror
         [FormerlySerializedAs("animator")]
         [Header("Animator")]
         [Tooltip("Animator that will have parameters synchronized")]
-        [SerializeField] Animator _animator;
+        [SerializeField] Animator _animator = null;
 
         // Note: not an object[] array because otherwise initialization is real annoying
         int[] lastIntParameters;
