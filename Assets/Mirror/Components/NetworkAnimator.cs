@@ -127,9 +127,7 @@ namespace Mirror
 
         void FixedUpdate()
         {
-            if (!hasSetup)
-                return;
-            if (!SendMessagesAllowed)
+            if (!hasSetup || !SendMessagesAllowed)
                 return;
 
             CheckSendRate();
