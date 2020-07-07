@@ -403,6 +403,21 @@ namespace Mirror.Weaver
 
             if (td.ImplementsInterface(IMessageBaseType))
             {
+                // process this and base classes from parent to child order
+
+                try
+                {
+                    TypeDefinition parent = td.BaseType.Resolve();
+                    // process parent
+                    WeaveMessage(parent);
+                }
+                catch (AssemblyResolutionException)
+                {
+                    // this can happen for plugins.
+                    //Console.WriteLine("AssemblyResolutionException: "+ ex.ToString());
+                }
+
+                // process this
                 MessageClassProcessor.Process(td);
                 modified = true;
             }
@@ -562,7 +577,7 @@ namespace Mirror.Weaver
             catch (Exception ex)
             {
                 Error(ex.ToString());
-                throw ex;
+                throw;
             }
         }
 
